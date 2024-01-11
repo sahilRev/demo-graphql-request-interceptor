@@ -11,21 +11,24 @@ import javax.servlet.http.HttpServletResponse;
 
 import graphql.kickstart.execution.GraphQLObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
 @Slf4j
 @Component
 public class CustomRequestInterceptor extends OncePerRequestFilter {
 
+	private final int MAX_BATCH_SIZE = 3;
+
 	@Override
 	protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
 			throws ServletException, IOException {
 		// Check if it's a POST req and has a specific URL pattern (or other identifying factor) for GraphQL
 		if ("POST".equalsIgnoreCase(req.getMethod()) && req.getRequestURI().endsWith("/graphql")) {
-			GraphQLObjectMapper mapper = GraphQLObjectMapper.newBuilder().build();
 			// Extract and parse the req body
 			var requestWrapper = new CachedBodyHttpServletRequest(req);
 			ContentCachingResponseWrapper responseWrapper = new ContentCachingResponseWrapper(res);
@@ -39,9 +42,14 @@ public class CustomRequestInterceptor extends OncePerRequestFilter {
 				if (StringUtils.hasLength(mutationContent)) {
 					int batchSize = countTopLevelPairs(mutationContent);
 					log.info("Batch Size : {}", batchSize);
+					if (batchSize > MAX_BATCH_SIZE) {
+						throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Max batch size exceeded.");
+					}else {
+						chain.doFilter(requestWrapper, res);
+					}
 				}
 				// Pass on the request to further filters
-				chain.doFilter(requestWrapper, res);
+
 			} finally {
 				responseWrapper.copyBodyToResponse();
 			}
